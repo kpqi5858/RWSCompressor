@@ -1,4 +1,4 @@
-﻿using Harmony;
+﻿using HarmonyLib;
 using RimWorld;
 using Verse;
 using Verse.Sound;
@@ -20,7 +20,7 @@ namespace RWSCompressor
 
         public MainMod(ModContentPack content) : base(content)
         {
-            var hinstance = HarmonyInstance.Create("RWSCompressor.Harmony");
+            var hinstance = new Harmony("RWSCompressor.Harmony");
             
             hinstance.PatchAll();
         }
@@ -60,6 +60,11 @@ namespace RWSCompressor
             {
                 using (Stream ReadStream = GetRightReadStream(path))
                 {
+                    ReadStream.CopyTo(TempFile);
+
+                    //.NET 4 has CopyTo, so obsolete that
+
+                    /*
                     //CopyTo implementation?
                     byte[] Buffer = new byte[32768];
                     int read;
@@ -67,6 +72,7 @@ namespace RWSCompressor
                     {
                         TempFile.Write(Buffer, 0, read);
                     }
+                    */
                 }
             }
 
@@ -132,21 +138,43 @@ namespace RWSCompressor
 
         public static bool IsSaveFile(string path)
         {
-            return path.EndsWith(".rws") || path.EndsWith(".rws.new") || path.EndsWith(".rws.old");
+            const string SaveExt = GenFilePaths.SavedGameExtension;
+            const string SaveExt_New = SaveExt + ".new";
+            const string SaveExt_Old = SaveExt + ".old";
+
+            return path.EndsWith(SaveExt) 
+                || path.EndsWith(SaveExt_New)
+                || path.EndsWith(SaveExt_Old);
         }
     }
 
     [HarmonyPatch(typeof(ScribeLoader), "InitLoading")]
     public class Patch_Loader1
     {
+        /// <summary>
+        /// This finds following c# code
+        /// 
+        /// using (StreamReader streamReader = new StreamReader(filePath))
+        ///                                    --------------------------
+        /// and replace to
+        /// 
+        /// using (StreamReader streamReader = new StreamReader(MainMod.GetRightReadStream()))
+        ///                                    ----------------------------------------------
+        /// </summary>
+        /// <param name="instructions"></param>
+        /// <param name="il"></param>
+        /// <returns></returns>
         public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator il)
         {
             var CodeList = instructions.ToList();
 
+            //Find C# : using (StreamReader streamReader = new StreamReader(filePath))
             int NewObj = CodeList.FirstIndexOf((CodeInstruction inst) => inst.opcode == OpCodes.Newobj && inst.operand == typeof(StreamReader).GetConstructor(new Type[] { typeof(string) } ));
 
+            //call MainMod.GetRightReadStream()
             CodeList[NewObj] = new CodeInstruction(OpCodes.Call, typeof(MainMod).GetMethod("GetRightReadStream"));
 
+            //new StreamReader(MainMod.GetRightReadSteam())
             CodeList.Insert(NewObj+1, new CodeInstruction(OpCodes.Newobj, typeof(StreamReader).GetConstructor(new Type[] { typeof(Stream) })));
             return CodeList;
         }
@@ -177,6 +205,7 @@ namespace RWSCompressor
         {
             var CodeList = instructions.ToList();
 
+            //Find C# : new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None)
             int Target = CodeList.FirstIndexOf((CodeInstruction inst) => inst.opcode == OpCodes.Newobj && inst.operand == typeof(FileStream).GetConstructor(new Type[] { typeof(string), typeof(FileMode), typeof(FileAccess), typeof(FileShare) }));
 
             int ArgLen = 4;
@@ -186,6 +215,7 @@ namespace RWSCompressor
                 CodeList[i] = new CodeInstruction(OpCodes.Nop);
             }
 
+            //Replace to : MainMod.GetRightReadStream(filePath)
             CodeList[Target - 1] = new CodeInstruction(OpCodes.Ldarg_1);
             CodeList[Target] = new CodeInstruction(OpCodes.Call, typeof(MainMod).GetMethod("GetRightWriteStream"));
 

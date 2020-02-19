@@ -2,9 +2,13 @@
 <ModMetaData>
 	<name>RWS Compressor</name>
 	<author>InsertKey</author>
-    <url></url>
 	<supportedVersions>
 	  <li>1.0</li>
+	  <li>1.1</li>
 	</supportedVersions>
 	<description>Compresses savefile to reduce file size. Use it at own risk.</description>
+	
+	<!--RimWorld 1.1-->
+	<!--It causes harmless error on 1.0-->
+	<packageId>InsertKey.RWSCompressor</packageId>
 </ModMetaData>
